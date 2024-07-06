@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS `PREFIX_custom_state` (
 CREATE TABLE IF NOT EXISTS `PREFIX_custom_zone` (
     `id_zone` int(10) unsigned NOT NULL AUTO_INCREMENT,
     `name` varchar(64) NOT NULL,
-    `price` decimal(20,6) NOT NULL DEFAULT '0.000000',
     PRIMARY KEY (`id_zone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 

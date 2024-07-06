@@ -39,20 +39,23 @@ class CustomCheckout extends Module
         if (!parent::install() ||
         !$this->registerHook('displayCustomerAddressForm') ||
         !$this->registerHook('actionValidateCustomerAddressForm') ||
-        !$this->registerHook('actionSubmitCustomerAddressForm')) {
+        !$this->registerHook('actionSubmitCustomerAddressForm') ||
+        !$this->registerHook('hookActionCarrierProcess') ||
+        !$this->executeSqlFile('install.sql') ||
+        !$this->populateCustomTables() ||
+        !$this->createCustomCarrier()) {
             return false;
         }
 
         // Create custom tables
-        if (!$this->executeSqlFile('install.sql')) {
-            return false;
-        }
+        // if (!$this->executeSqlFile('install.sql')) {
+        //     return false;
+        // }
 
-        // Populate custom tables with data
-        if (!$this->populateCustomTables()) {
-            return false;
-        }
-
+        // // Populate custom tables with data
+        // if (!$this->populateCustomTables()) {
+        //     return false;
+        // }
         return true;
     }
 
@@ -93,14 +96,44 @@ class CustomCheckout extends Module
             ]);
         }
 
-        // For simplicity, we'll add some example states for Cairo
-        $cairoId = Db::getInstance()->getValue('SELECT id_government FROM '._DB_PREFIX_.'custom_government WHERE name = "Cairo"');
-        $cairoStates = ['Nasr City', 'Maadi', 'Heliopolis', 'Downtown', 'Zamalek'];
+        // Add states for each government (simplified for brevity)
+        $governmentIds = Db::getInstance()->executeS('SELECT id_government, name FROM '._DB_PREFIX_.'custom_government');
+        foreach ($governmentIds as $government) {
+            for ($i = 1; $i <= 3; $i++) {
+                Db::getInstance()->insert('custom_state', [
+                    'id_government' => (int)$government['id_government'],
+                    'name' => pSQL("State {$i} of {$government['name']}")
+                ]);
+            }
+        }
 
-        foreach ($cairoStates as $state) {
-            Db::getInstance()->insert('custom_state', [
-                'id_government' => (int)$cairoId,
-                'name' => pSQL($state)
+        // // For simplicity, we'll add some example states for Cairo
+        // $cairoId = Db::getInstance()->getValue('SELECT id_government FROM '._DB_PREFIX_.'custom_government WHERE name = "Cairo"');
+        // $cairoStates = ['Nasr City', 'Maadi', 'Heliopolis', 'Downtown', 'Zamalek'];
+
+        // foreach ($cairoStates as $state) {
+        //     Db::getInstance()->insert('custom_state', [
+        //         'id_government' => (int)$cairoId,
+        //         'name' => pSQL($state)
+        //     ]);
+        // }
+
+
+        // Create zones
+        $zones = ['Zone A', 'Zone B', 'Zone C'];
+        foreach ($zones as $zone) {
+            Db::getInstance()->insert('custom_zone', [
+                'name' => pSQL($zone)
+            ]);
+        }
+
+        // Assign governments to zones (simplified)
+        $zoneIds = Db::getInstance()->executeS('SELECT id_zone FROM '._DB_PREFIX_.'custom_zone');
+        foreach ($governmentIds as $index => $government) {
+            $zoneIndex = $index % count($zoneIds);
+            Db::getInstance()->insert('custom_zone_government', [
+                'id_zone' => (int)$zoneIds[$zoneIndex]['id_zone'],
+                'id_government' => (int)$government['id_government']
             ]);
         }
 
@@ -339,13 +372,94 @@ class CustomCheckout extends Module
         );
         return $states;
     }
-    public function hookDisplayCarrierExtraContent($params)
+
+    // Creating Custom Carrier
+    private function createCustomCarrier()
     {
-        // Display custom shipping options
+        $carrier = new Carrier();
+        $carrier->name = $this->l('Custom Egyptian Shipping');
+        $carrier->is_module = true;
+        $carrier->active = true;
+        $carrier->range_behavior = 0;
+        $carrier->need_range = true;
+        $carrier->shipping_external = true;
+        $carrier->external_module_name = $this->name;
+        $carrier->shipping_method = Carrier::SHIPPING_METHOD_PRICE;
+
+        foreach (Language::getLanguages() as $lang) {
+            $carrier->delay[$lang['id_lang']] = $this->l('Delivery time depends on the shipping zone');
+        }
+
+        if ($carrier->add()) {
+            // Associate the carrier with all zones
+            $zones = Zone::getZones();
+            foreach ($zones as $zone) {
+                $carrier->addZone($zone['id_zone']);
+            }
+
+            // Add ranges and prices (example)
+            $rangePrice = new RangePrice();
+            $rangePrice->id_carrier = $carrier->id;
+            $rangePrice->delimiter1 = '0';
+            $rangePrice->delimiter2 = '10000';
+            $rangePrice->add();
+
+            // Add prices for each zone (example)
+            foreach ($zones as $zone) {
+                Db::getInstance()->insert('delivery', [
+                    'id_carrier' => $carrier->id,
+                    'id_range_price' => $rangePrice->id,
+                    'id_range_weight' => null,
+                    'id_zone' => $zone['id_zone'],
+                    'price' => 10 // Default price, you might want to adjust this
+                ]);
+            }
+
+            Configuration::updateValue('CUSTOM_CARRIER_ID', (int)$carrier->id);
+            return true;
+        }
+
+        return false;
     }
+
+    // public function hookDisplayCarrierExtraContent($params)
+    // {
+    //     // Display custom shipping options
+    // }
 
     public function hookActionCarrierProcess($params)
     {
-        // Process custom shipping logic
+        $cart = $params['cart'];
+        $deliveryAddress = new Address($cart->id_address_delivery);
+
+        // Get the government from the custom fields
+        $customFields = json_decode($deliveryAddress->other, true);
+        $governmentId = $customFields['government'];
+
+        // Get the zone for this government
+        $zoneId = Db::getInstance()->getValue(
+            '
+        SELECT cz.id_zone 
+        FROM '._DB_PREFIX_.'custom_zone_government czg
+        JOIN '._DB_PREFIX_.'custom_zone cz ON czg.id_zone = cz.id_zone
+        WHERE czg.id_government = '.(int)$governmentId
+        );
+
+        if ($zoneId) {
+            // Get the price for this zone
+            $carrierId = Configuration::get('CUSTOM_CARRIER_ID');
+            $price = Db::getInstance()->getValue(
+                '
+            SELECT price 
+            FROM '._DB_PREFIX_.'delivery
+            WHERE id_carrier = '.(int)$carrierId.'
+            AND id_zone = '.(int)$zoneId
+            );
+
+            if ($price !== false) {
+                // Update the shipping cost
+                $cart->setPackageShippingCost($carrierId, $price);
+            }
+        }
     }
 }

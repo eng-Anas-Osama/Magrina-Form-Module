@@ -13,5 +13,7 @@
         <hook module="customcheckout" hook="displayCustomerAddressForm" position="1"/>
         <hook module="customcheckout" hook="actionValidateCustomerAddressForm" position="1"/>
         <hook module="customcheckout" hook="actionSubmitCustomerAddressForm" position="1"/>
+        <hook module="customcheckout" hook="hookActionCarrierProcess" position="1"/>
+
     </hooks>
 </module>
