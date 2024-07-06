@@ -40,13 +40,13 @@ class CustomCheckout extends Module
         !$this->registerHook('displayCustomerAddressForm') ||
         !$this->registerHook('actionValidateCustomerAddressForm') ||
         !$this->registerHook('actionSubmitCustomerAddressForm') ||
-        !$this->registerHook('hookActionCarrierProcess') ||
+        !$this->registerHook('actionCarrierProcess') ||
         !$this->executeSqlFile('install.sql') ||
         !$this->populateCustomTables() ||
-        !$this->createCustomCarrier()) {
+        !$this->createCustomCarrier() ||
+        !$this->setupShippingPrices()) {
             return false;
         }
-
         // Create custom tables
         // if (!$this->executeSqlFile('install.sql')) {
         //     return false;
@@ -85,56 +85,69 @@ class CustomCheckout extends Module
 
     private function populateCustomTables()
     {
-        $governments = [
-            'Cairo', 'Alexandria', 'Giza', 'Shubra El Kheima', 'Port Said', 'Suez', 'Luxor',
-            'Aswan', 'Asyut', 'Ismailia', 'Fayoum', 'Zagazig', 'Assiut', 'Tanta', 'Sohag'
+        $governments_and_states = [
+            'Cairo' => ['Nasr City', 'Maadi', 'Heliopolis', 'Downtown', 'Zamalek'],
+            'Alexandria' => ['Montazah', 'Sidi Gaber', 'Mansheya', 'Miami', 'Agami'],
+            'Giza' => ['Dokki', 'Mohandessin', '6th of October City', 'Sheikh Zayed City'],
+            'Shubra El Kheima' => ['Shubra', 'El Khema', 'Bahtim'],
+            'Port Said' => ['El Sharq', 'El Arab', 'El Manakh', 'El Zohour'],
+            'Suez' => ['Arbaeen', 'Suez', 'Attaka', 'El Ganayen'],
+            'Luxor' => ['Luxor City', 'Karnak', 'New Thebes', 'El Toud'],
+            'Aswan' => ['Aswan City', 'Edfu', 'Kom Ombo', 'Daraw'],
+            'Asyut' => ['Asyut City', 'Dairut', 'Manfalut', 'Abnoub'],
+            'Ismailia' => ['Ismailia City', 'El Tal El Kabier', 'Fayed', 'El Qantara'],
+            'Fayoum' => ['Fayoum City', 'Sinnuris', 'Tamiya', 'Youssef El Seddik'],
+            'Zagazig' => ['Zagazig City', 'Belbeis', 'Minya El Qamh', 'Hehya'],
+            'Tanta' => ['Tanta City', 'El Mahalla El Kubra', 'Kafr El Zayat', 'Zifta'],
+            'Sohag' => ['Sohag City', 'Akhmim', 'Tama', 'El Maragha']
         ];
 
-        foreach ($governments as $government) {
+        foreach ($governments_and_states as $government => $states) {
+            // Insert government
             Db::getInstance()->insert('custom_government', [
                 'name' => pSQL($government)
             ]);
-        }
+            $governmentId = Db::getInstance()->Insert_ID();
 
-        // Add states for each government (simplified for brevity)
-        $governmentIds = Db::getInstance()->executeS('SELECT id_government, name FROM '._DB_PREFIX_.'custom_government');
-        foreach ($governmentIds as $government) {
-            for ($i = 1; $i <= 3; $i++) {
+            // Insert states for this government
+            foreach ($states as $state) {
                 Db::getInstance()->insert('custom_state', [
-                    'id_government' => (int)$government['id_government'],
-                    'name' => pSQL("State {$i} of {$government['name']}")
+                    'id_government' => (int)$governmentId,
+                    'name' => pSQL($state)
                 ]);
             }
         }
 
-        // // For simplicity, we'll add some example states for Cairo
-        // $cairoId = Db::getInstance()->getValue('SELECT id_government FROM '._DB_PREFIX_.'custom_government WHERE name = "Cairo"');
-        // $cairoStates = ['Nasr City', 'Maadi', 'Heliopolis', 'Downtown', 'Zamalek'];
-
-        // foreach ($cairoStates as $state) {
-        //     Db::getInstance()->insert('custom_state', [
-        //         'id_government' => (int)$cairoId,
-        //         'name' => pSQL($state)
-        //     ]);
-        // }
-
-
         // Create zones
-        $zones = ['Zone A', 'Zone B', 'Zone C'];
-        foreach ($zones as $zone) {
-            Db::getInstance()->insert('custom_zone', [
-                'name' => pSQL($zone)
-            ]);
-        }
+        $zones = [
+            'Zone A' => ['Cairo', 'Giza', 'Alexandria'],
+            'Zone B' => ['Port Said', 'Suez', 'Ismailia'],
+            'Zone C' => ['Luxor', 'Aswan', 'Asyut', 'Sohag'],
+            'Zone D' => ['Fayoum', 'Zagazig', 'Tanta', 'Shubra El Kheima']
+        ];
 
-        // Assign governments to zones (simplified)
-        $zoneIds = Db::getInstance()->executeS('SELECT id_zone FROM '._DB_PREFIX_.'custom_zone');
-        foreach ($governmentIds as $index => $government) {
-            $zoneIndex = $index % count($zoneIds);
-            Db::getInstance()->insert('custom_zone_government', [
-                'id_zone' => (int)$zoneIds[$zoneIndex]['id_zone'],
-                'id_government' => (int)$government['id_government']
+        foreach ($zones as $zoneName => $zoneGovernments) {
+            // Insert zone
+            Db::getInstance()->insert('custom_zone', [
+                'name' => pSQL($zoneName)
             ]);
+            $zoneId = Db::getInstance()->Insert_ID();
+
+            // Assign governments to zone
+            foreach ($zoneGovernments as $governmentName) {
+                $governmentId = Db::getInstance()->getValue('
+                SELECT id_government 
+                FROM '._DB_PREFIX_.'custom_government 
+                WHERE name = "'.pSQL($governmentName).'"
+            ');
+
+                if ($governmentId) {
+                    Db::getInstance()->insert('custom_zone_government', [
+                        'id_zone' => (int)$zoneId,
+                        'id_government' => (int)$governmentId
+                    ]);
+                }
+            }
         }
 
         return true;
@@ -439,27 +452,55 @@ class CustomCheckout extends Module
         // Get the zone for this government
         $zoneId = Db::getInstance()->getValue(
             '
-        SELECT cz.id_zone 
+        SELECT czg.id_zone 
         FROM '._DB_PREFIX_.'custom_zone_government czg
-        JOIN '._DB_PREFIX_.'custom_zone cz ON czg.id_zone = cz.id_zone
         WHERE czg.id_government = '.(int)$governmentId
         );
 
         if ($zoneId) {
             // Get the price for this zone
             $carrierId = Configuration::get('CUSTOM_CARRIER_ID');
-            $price = Db::getInstance()->getValue(
-                '
-            SELECT price 
-            FROM '._DB_PREFIX_.'delivery
-            WHERE id_carrier = '.(int)$carrierId.'
-            AND id_zone = '.(int)$zoneId
-            );
+            $price = $this->getShippingPriceForZone($zoneId);
 
             if ($price !== false) {
                 // Update the shipping cost
                 $cart->setPackageShippingCost($carrierId, $price);
             }
         }
+    }
+
+    private function getShippingPriceForZone($zoneId)
+    {
+        return Configuration::get('CUSTOM_SHIPPING_PRICE_ZONE_'.$zoneId);
+    }
+
+    private function setupShippingPrices()
+    {
+        $zonePrices = [
+            'Zone A' => 50,
+            'Zone B' => 75,
+            'Zone C' => 100,
+            'Zone D' => 125
+        ];
+
+        foreach ($zonePrices as $zoneName => $price) {
+            $zoneId = Db::getInstance()->getValue('
+            SELECT id_zone 
+            FROM '._DB_PREFIX_.'custom_zone 
+            WHERE name = "'.pSQL($zoneName).'"
+        ');
+
+            if ($zoneId) {
+                Configuration::updateValue('CUSTOM_SHIPPING_PRICE_ZONE_'.$zoneId, $price);
+            }
+        }
+    }
+
+    private function getPrestaShopZoneId($customZoneId)
+    {
+        // This method should return the corresponding PrestaShop zone ID
+        // You might want to create a mapping between your custom zones and PrestaShop zones
+        // For simplicity, let's assume a direct mapping (custom zone 1 = PrestaShop zone 1, etc.)
+        return $customZoneId;
     }
 }
