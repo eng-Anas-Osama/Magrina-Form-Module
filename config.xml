@@ -2,11 +2,16 @@
 <module>
     <name>customcheckout</name>
     <displayName><![CDATA[Custom Checkout]]></displayName>
-    <version><![CDATA[1.0.2]]></version>
-    <description><![CDATA[Customizes the checkout process for Egyptian users.]]></description>
-    <author><![CDATA[Aans Osama]]></author>
+    <version><![CDATA[1.0.0]]></version>
+    <description><![CDATA[Customizes the checkout process for guest users with Egyptian-specific fields.]]></description>
+    <author><![CDATA[Anas Osama]]></author>
     <tab><![CDATA[front_office_features]]></tab>
     <is_configurable>0</is_configurable>
     <need_instance>0</need_instance>
     <limited_countries></limited_countries>
+    <hooks>
+        <hook module="customcheckout" hook="displayCustomerAddressForm" position="1"/>
+        <hook module="customcheckout" hook="actionValidateCustomerAddressForm" position="1"/>
+        <hook module="customcheckout" hook="actionSubmitCustomerAddressForm" position="1"/>
+    </hooks>
 </module>
