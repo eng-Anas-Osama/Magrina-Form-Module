@@ -18,6 +18,13 @@ class CustomCheckout extends Module
             'max' => _PS_VERSION_
         ];
         $this->bootstrap = true;
+        if (Tools::getValue('controller') == 'order') {
+            $this->context->controller->registerJavascript(
+                'custom-address-form-js',
+                'modules/'.$this->name.'/views/js/custom-address-form.js',
+                ['position' => 'bottom', 'priority' => 150]
+            );
+        }
 
         parent::__construct();
 
@@ -29,36 +36,21 @@ class CustomCheckout extends Module
 
     public function install()
     {
-        // return parent::install() &&
-        //     $this->registerHook('displayCustomerAddressForm') &&
-        //     $this->registerHook('actionValidateCustomerAddressForm') &&
-        //     $this->registerHook('actionSubmitCustomerAddressForm') &&
-        //     $this->registerHook('displayCarrierExtraContent') &&
-        //     $this->registerHook('actionCarrierProcess');
-
         if (!parent::install() ||
-        !$this->registerHook('displayCustomerAddressForm') ||
-        !$this->registerHook('actionValidateCustomerAddressForm') ||
-        !$this->registerHook('actionSubmitCustomerAddressForm') ||
-        !$this->registerHook('actionCarrierProcess') ||
-        !$this->executeSqlFile('install.sql') ||
-        !$this->populateCustomTables() ||
-        !$this->createCustomCarrier() ||
-        !$this->setupShippingPrices()) {
+            !$this->registerHook('displayCustomerAddressForm') ||
+            !$this->registerHook('actionValidateCustomerAddressForm') ||
+            !$this->registerHook('actionSubmitCustomerAddressForm') ||
+            // !$this->registerHook('displayCarrierExtraContent') ||
+            !$this->registerHook('actionCarrierProcess') ||
+            !$this->executeSqlFile('install.sql') ||
+            !$this->populateCustomTables() ||
+            !$this->createCustomCarrier() ||
+            !$this->setupShippingPrices()) {
             return false;
         }
-        // Create custom tables
-        // if (!$this->executeSqlFile('install.sql')) {
-        //     return false;
-        // }
 
-        // // Populate custom tables with data
-        // if (!$this->populateCustomTables()) {
-        //     return false;
-        // }
         return true;
     }
-
     public function uninstall()
     {
         return parent::uninstall();
@@ -155,123 +147,156 @@ class CustomCheckout extends Module
 
     public function hookDisplayCustomerAddressForm($params)
     {
-        // Custom form fields implementation
         $form = $params['form'];
 
-        // Remove default fields we don't need
-        $form->remove('firstname');
-        $form->remove('lastname');
-        $form->remove('company');
-        $form->remove('vat_number');
-        $form->remove('address1');
-        $form->remove('address2');
-        $form->remove('postcode');
-        $form->remove('city');
-        $form->remove('phone');
-        $form->remove('phone_mobile');
+        // Get governments from your custom table
+        $governments = $this->getGovernments();
 
-        // Add full name field
-        $form->add('text', 'full_name', [
-            'label' => $this->l('Full Name'),
-            'required' => true,
-            'constraints' => [
-                new \Symfony\Component\Validator\Constraints\NotBlank([
-                    'message' => $this->l('Please enter your full name.')
-                ])
-            ]
+        $this->context->smarty->assign([
+            'action' => $this->context->link->getPageLink('order'),
+            'governments' => $governments,
+            'full_name' => $form->getField('full_name')->getValue(),
+            'phone' => $form->getField('phone')->getValue(),
+            'government' => $form->getField('government')->getValue(),
+            'state' => $form->getField('state')->getValue(),
+            'address' => $form->getField('address')->getValue(),
+            'notes' => $form->getField('notes')->getValue(),
+            'email' => $form->getField('email')->getValue(),
         ]);
 
-        // Add phone number field with Egyptian validation
-        $form->add('text', 'phone', [
-            'label' => $this->l('Phone Number'),
-            'required' => true,
-            'constraints' => [
-                new \Symfony\Component\Validator\Constraints\NotBlank([
-                    'message' => $this->l('Please enter your phone number.')
-                ]),
-                new \Symfony\Component\Validator\Constraints\Regex([
-                    'pattern' => '/^01[0-2,5]{1}[0-9]{8}$/',
-                    'message' => $this->l('Please enter a valid Egyptian phone number (11 digits starting with 01).')
-                ])
-            ]
-        ]);
+        return $this->display(__FILE__, 'views/templates/hook/custom_checkout_form.tpl');
 
-        // Add government field
-        $form->add('select', 'government', [
-            'label' => $this->l('Government'),
-            'required' => true,
-            'choices' => $this->getEgyptianGovernments(),
-            'constraints' => [
-                new \Symfony\Component\Validator\Constraints\NotBlank([
-                    'message' => $this->l('Please select a government.')
-                ])
-            ]
-        ]);
+        // // Custom form fields implementation
+        // $form = $params['form'];
 
-        // Add state field
-        $form->add('select', 'state', [
-            'label' => $this->l('State'),
-            'required' => true,
-            'choices' => [],
-            'constraints' => [
-                new \Symfony\Component\Validator\Constraints\NotBlank([
-                    'message' => $this->l('Please select a state.')
-                ])
-            ]
-        ]);
+        // // Remove default fields we don't need
+        // $form->remove('firstname');
+        // $form->remove('lastname');
+        // $form->remove('company');
+        // $form->remove('vat_number');
+        // $form->remove('address1');
+        // $form->remove('address2');
+        // $form->remove('postcode');
+        // $form->remove('city');
+        // $form->remove('phone');
+        // $form->remove('phone_mobile');
 
-        // Add address field
-        $form->add('textarea', 'address', [
-            'label' => $this->l('Address'),
-            'required' => true,
-            'constraints' => [
-                new \Symfony\Component\Validator\Constraints\NotBlank([
-                    'message' => $this->l('Please enter your address.')
-                ])
-            ]
-        ]);
+        // // Add full name field
+        // $form->add('text', 'full_name', [
+        //     'label' => $this->l('Full Name'),
+        //     'required' => true,
+        //     'constraints' => [
+        //         new \Symfony\Component\Validator\Constraints\NotBlank([
+        //             'message' => $this->l('Please enter your full name.')
+        //         ])
+        //     ]
+        // ]);
 
-        // Add notes field
-        $form->add('textarea', 'notes', [
-            'label' => $this->l('Notes (Optional)'),
-            'required' => false,
-        ]);
+        // // Add phone number field with Egyptian validation
+        // $form->add('text', 'phone', [
+        //     'label' => $this->l('Phone Number'),
+        //     'required' => true,
+        //     'constraints' => [
+        //         new \Symfony\Component\Validator\Constraints\NotBlank([
+        //             'message' => $this->l('Please enter your phone number.')
+        //         ]),
+        //         new \Symfony\Component\Validator\Constraints\Regex([
+        //             'pattern' => '/^01[0-2,5]{1}[0-9]{8}$/',
+        //             'message' => $this->l('Please enter a valid Egyptian phone number (11 digits starting with 01).')
+        //         ])
+        //     ]
+        // ]);
 
-        // Add a field for account creation option
-        $form->add('checkbox', 'create_account', [
-            'label' => $this->l('Create an account'),
-            'required' => false,
-        ]);
+        // // Add government field
+        // $form->add('select', 'government', [
+        //     'label' => $this->l('Government'),
+        //     'required' => true,
+        //     'choices' => $this->getEgyptianGovernments(),
+        //     'constraints' => [
+        //         new \Symfony\Component\Validator\Constraints\NotBlank([
+        //             'message' => $this->l('Please select a government.')
+        //         ])
+        //     ]
+        // ]);
 
-        // Add email field (initially hidden, shown when create_account is checked)
-        $form->add('email', 'email', [
-            'label' => $this->l('Email'),
-            'required' => false,
-            'constraints' => [
-                new \Symfony\Component\Validator\Constraints\Email([
-                    'message' => $this->l('Please enter a valid email address.')
-                ])
-            ]
-        ]);
-        $this->context->controller->addJS($this->_path.'views/js/custom-address-form.js');
-        return $form->getForm()->createView();
+        // // Add state field
+        // $form->add('select', 'state', [
+        //     'label' => $this->l('State'),
+        //     'required' => true,
+        //     'choices' => [],
+        //     'constraints' => [
+        //         new \Symfony\Component\Validator\Constraints\NotBlank([
+        //             'message' => $this->l('Please select a state.')
+        //         ])
+        //     ]
+        // ]);
+
+        // // Add address field
+        // $form->add('textarea', 'address', [
+        //     'label' => $this->l('Address'),
+        //     'required' => true,
+        //     'constraints' => [
+        //         new \Symfony\Component\Validator\Constraints\NotBlank([
+        //             'message' => $this->l('Please enter your address.')
+        //         ])
+        //     ]
+        // ]);
+
+        // // Add notes field
+        // $form->add('textarea', 'notes', [
+        //     'label' => $this->l('Notes (Optional)'),
+        //     'required' => false,
+        // ]);
+
+        // // Add a field for account creation option
+        // $form->add('checkbox', 'create_account', [
+        //     'label' => $this->l('Create an account'),
+        //     'required' => false,
+        // ]);
+
+        // // Add email field (initially hidden, shown when create_account is checked)
+        // $form->add('email', 'email', [
+        //     'label' => $this->l('Email'),
+        //     'required' => false,
+        //     'constraints' => [
+        //         new \Symfony\Component\Validator\Constraints\Email([
+        //             'message' => $this->l('Please enter a valid email address.')
+        //         ])
+        //     ]
+        // ]);
+        // $this->context->controller->addJS($this->_path.'views/js/custom-address-form.js');
+        // return $form->getForm()->createView();
     }
-
-    private function getEgyptianGovernments()
+    private function getGovernments()
     {
         $governments = Db::getInstance()->executeS('
-            SELECT id_government as id, name 
-            FROM '._DB_PREFIX_.'custom_government 
-            ORDER BY name ASC
-        ');
+        SELECT id_government, name 
+        FROM '._DB_PREFIX_.'custom_government 
+        ORDER BY name ASC
+    ');
 
         $formattedGovernments = [];
         foreach ($governments as $government) {
-            $formattedGovernments[$government['id']] = $this->l($government['name']);
+            $formattedGovernments[$government['id_government']] = $government['name'];
         }
 
         return $formattedGovernments;
     }
+    // private function getEgyptianGovernments()
+    // {
+    //     $governments = Db::getInstance()->executeS('
+    //         SELECT id_government as id, name
+    //         FROM '._DB_PREFIX_.'custom_government
+    //         ORDER BY name ASC
+    //     ');
+
+    //     $formattedGovernments = [];
+    //     foreach ($governments as $government) {
+    //         $formattedGovernments[$government['id']] = $this->l($government['name']);
+    //     }
+
+    //     return $formattedGovernments;
+    // }
 
     public function hookActionValidateCustomerAddressForm($params)
     {
@@ -381,7 +406,8 @@ class CustomCheckout extends Module
             '
         SELECT id_state as id, name 
         FROM '._DB_PREFIX_.'custom_state 
-        WHERE id_government = '.(int)$governmentId
+        WHERE id_government = '.(int)$governmentId.' 
+        ORDER BY name ASC'
         );
         return $states;
     }
